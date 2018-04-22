@@ -1,40 +1,56 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 ###############################################################################
 #                       Configuration variables
 ###############################################################################
 
+tst=false
+install=""
+keep=false
+execute=
 mnt="temporary_mount_point"
 arch="amd64"
 release="jessie"
 repo="http://ftp.fr.debian.org/debian"
 hostname="nohost"
 
+summary="$0 [options] <device>"
+declare -A usage
+usage[t]="tst Start qemu after the installation"
+usage[i]="install Install the provided package. Not implemented"
+usage[k]="keep Keep the temporar mountpoints"
+usage[e]="execute bash command file to execute in the chroot. - to read from stdin"
+
 ###############################################################################
 #                       Configurations end
 ###############################################################################
 
-yell() { echo >&2 -e "\nERROR: $@\n"; }
+yell() { echo >&2 -e "$@"; }
 die() { yell "$@"; exit 1; }
+need_root() { if [ "$UID" -ne 0 ] ; then die "You need to be root" ; fi }
 run() { "$@"; code=$?; [ $code -ne 0 ]&& die "command [$*] failed with erro code $code"; }
-usage() {
-  die "$0 <device>" \
-    "-t | --test : Start qemu after the installation. Not implemented" \
-    "-i | --install <package list> : Install the provided packages. Not implemented" \
-    "-c | --clean [YES|no] : Delete the temporar mountpoints" \
-    "-e | --exec : Execute commands in the chroot environment. - to read them from stdin." \
+usage() { die "$summary\n$(for key in "${!usage[@]}" ; do echo "  -$key $( echo ${usage[$key]} | cut -d ' ' -f 2- )"; done)\n  -h print this help and exit."; }
 
-
-}
-
-if [ $UID -ne 0 ]; then
-    die "You must be root"
-fi
+while getopts ":tke:i:h" opt; do
+  case $opt in
+    h) usage;;
+    :) die "Option -$OPTARG requires an argument.";;
+    \?) die "Invalid option: -$OPTARG";;
+    *)
+      name=$(echo ${usage[$opt]} | cut -d ' ' -f 1 )
+      if [ "${!name}" == "false" ] ; then eval $name=true
+      elif [ -z "${!name}" ] ; then safe="${!name} $OPTARG" ; eval $name=\$safe
+      else eval $name=\$OPTARG
+      fi;;
+  esac
+done ; shift $((OPTIND-1))
 
 if [ $# -lt 1 ] ; then
   yell "No device found"
   usage
 fi
+
+need_root
 
 echo "Choosing device"
 device="$1"
@@ -72,12 +88,17 @@ cat << EOF | chroot "$mnt"
 apt-get update -y
 apt-get install -y linux-image-amd64 console-data grub2
 EOF
-
 # TODO setup grub manually
+# TODO set passwd
+
 echo "Cleaning fs"
 run umount "$mnt"/{dev,proc}
 run umount "$mnt"
-run rm -r "$mnt"
+if [ -z "$arg_keep" ] ; then
+  run rm -r "$mnt"
+fi
 
-echo "Testing"
-run qemu-system-x86_64 $bloc
+if [ -n "$arg_test" ] ; then
+  echo "Testing"
+  run qemu-system-x86_64 $bloc
+fi
