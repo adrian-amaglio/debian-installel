@@ -5,9 +5,9 @@
 ###############################################################################
 
 tst=false
-install=""
+declare -a install
 keep=false
-execute=
+declare -a execute
 mnt="temporary_mount_point"
 arch="amd64"
 release="jessie"
@@ -20,6 +20,7 @@ usage[t]="tst Start qemu after the installation"
 usage[i]="install Install the provided package. Not implemented"
 usage[k]="keep Keep the temporar mountpoints"
 usage[e]="execute bash command file to execute in the chroot. - to read from stdin"
+usage[m]="mnt Path of the temporar mount point"
 
 ###############################################################################
 #                       Configurations end
@@ -31,7 +32,7 @@ need_root() { if [ "$UID" -ne 0 ] ; then die "You need to be root" ; fi }
 run() { "$@"; code=$?; [ $code -ne 0 ]&& die "command [$*] failed with erro code $code"; }
 usage() { die "$summary\n$(for key in "${!usage[@]}" ; do echo "  -$key $( echo ${usage[$key]} | cut -d ' ' -f 2- )"; done)\n  -h print this help and exit."; }
 
-while getopts ":tke:i:h" opt; do
+while getopts ":tke:i:m:h" opt; do
   case $opt in
     h) usage;;
     :) die "Option -$OPTARG requires an argument.";;
@@ -39,7 +40,7 @@ while getopts ":tke:i:h" opt; do
     *)
       name=$(echo ${usage[$opt]} | cut -d ' ' -f 1 )
       if [ "${!name}" == "false" ] ; then eval $name=true
-      elif [ -z "${!name}" ] ; then safe="${!name} $OPTARG" ; eval $name=\$safe
+      elif [ -n "$( declare -p "$name" 2>/dev/null | grep 'declare \-a')" ] ; then safe="${!name} $OPTARG" ; eval $name=\$safe
       else eval $name=\$OPTARG
       fi;;
   esac
@@ -49,7 +50,6 @@ if [ $# -lt 1 ] ; then
   yell "No device found"
   usage
 fi
-
 need_root
 
 echo "Choosing device"
