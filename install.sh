@@ -72,6 +72,7 @@ echo "debootstraping"
 run debootstrap --arch "$arch" "$release" "$mnt" "$repo"
 
 echo "Preparing chroot"
+run mount -t proc none "$mnt/proc"
 run mount -o bind /dev "$mnt/dev"
 
 echo "Configuring new system"
