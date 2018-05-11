@@ -1,56 +1,61 @@
 #!/bin/bash
 
-###############################################################################
-#                       Configuration variables
-###############################################################################
+# https://github.com/adrianamaglio/driglibash
+declare -A usage
+declare -A varia
 
+version="alpha nightly 0.0.1 pre-release unstable"
+summary="$0 [options] <device>"
+
+usage[t]="Start qemu after the installation"
+varia[t]=tst
 tst=false
+
+usage[i]="Install the provided package. Not implemented"
+varia[i]=install
 declare -a install
+
+usage[k]="Keep the temporar mountpoints"
+varia[k]=keep
 keep=false
+
+usage[e]="bash command file to execute in the chroot. - to read from stdin"
+varia[e]=execute
 declare -a execute
+
+usage[m]="Path of the temporar mount point"
+varia[m]=mnt
 mnt="temporary_mount_point"
+
+usage[a]="The architecture of installed system as supported by debootstrap"
+varia[a]=arch
 arch="amd64"
+
+usage[r]="The release of installed system as supported by debootstrap"
+varia[r]=release
 release="jessie"
+
+usage[s]="Source repository of installed system"
+varia[s]=repo
 repo="http://ftp.fr.debian.org/debian"
+
+usage[n]="The hostname"
+varia[n]=hostname
 hostname="nohost"
 
-summary="$0 [options] <device>"
-declare -A usage
-usage[t]="tst Start qemu after the installation"
-usage[i]="install Install the provided package. Not implemented"
-usage[k]="keep Keep the temporar mountpoints"
-usage[e]="execute bash command file to execute in the chroot. - to read from stdin"
-usage[m]="mnt Path of the temporar mount point"
+usage[c]="file:dest Copy the <file> to <dest> into the new system"
+varia[c]=copy
+declare -a copy
+
+. /bin/driglibash-args
 
 ###############################################################################
-#                       Configurations end
+#                              Actual script
 ###############################################################################
 
-yell() { echo >&2 -e "$@"; }
-die() { yell "$@"; exit 1; }
-need_root() { if [ "$UID" -ne 0 ] ; then die "You need to be root" ; fi }
-run() { "$@"; code=$?; [ $code -ne 0 ]&& die "command [$*] failed with erro code $code"; }
-usage() { die "$summary\n$(for key in "${!usage[@]}" ; do echo "  -$key $( echo ${usage[$key]} | cut -d ' ' -f 2- )"; done)\n  -h print this help and exit."; }
 
-while getopts ":tke:i:m:h" opt; do
-  case $opt in
-    h) usage;;
-    :) die "Option -$OPTARG requires an argument.";;
-    \?) die "Invalid option: -$OPTARG";;
-    *)
-      name=$(echo ${usage[$opt]} | cut -d ' ' -f 1 )
-      if [ "${!name}" == "false" ] ; then eval $name=true
-      elif [ -n "$( declare -p "$name" 2>/dev/null | grep 'declare \-a')" ] ; then safe="${!name} $OPTARG" ; eval $name=\$safe
-      else eval $name=\$OPTARG
-      fi;;
-  esac
-done ; shift $((OPTIND-1))
-
-if [ $# -lt 1 ] ; then
-  yell "No device found"
-  usage
-fi
-need_root
+if [ $# -lt 1 ] ; then die "No device found" ; fi
+root_or_die
 
 echo "Choosing device"
 device="$1"
@@ -67,14 +72,13 @@ echo "debootstraping"
 run debootstrap --arch "$arch" "$release" "$mnt" "$repo"
 
 echo "Preparing chroot"
-run mount -t proc none "$mnt/proc"
 run mount -o bind /dev "$mnt/dev"
 
 echo "Configuring new system"
 uuid=$(blkid | grep "$device" | cut -d ' ' -f 2)
 run echo -e "proc /proc proc defaults\n$uuid    /    ext4 errors=remount-ro 0 1" > "$mnt/etc/fstab"
 run echo "$hostname" > "$mnt/etc/hostname"
-run tee "$mnt/etc/network/interfaces" > /dev/null << EOF
+run cat > "$mnt/etc/network/interfaces" << EOF
 auto lo
 iface lo inet loopback
 allow-hotplug eth0
@@ -85,7 +89,7 @@ run echo 'PATH=$PATH:/usr/bin:/bin:/sbin:/usr/sbin' > "$mnt/root/.bashrc"
 
 echo "Chrooting"
 cat << EOF | chroot "$mnt"
-apt-get update -y
+apt-get update -y ${install[@]}
 apt-get install -y linux-image-amd64 console-data grub2
 EOF
 # TODO setup grub manually
