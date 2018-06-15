@@ -8,18 +8,18 @@ version="alpha nightly 0.0.1 pre-release unstable"
 summary="$0 [options] <device>"
 
 usage[t]="Start qemu after the installation"
-varia[t]=tst
-tst=false
+varia[t]=arg_test
+arg_test=false
 
-usage[i]="Install the provided package. Not implemented"
+usage[i]="Install the provided package. Plus 'linux-image-amd64 console-data grub2'"
 varia[i]=install
-declare -a install
+install=
 
 usage[k]="Keep the temporar mountpoints"
 varia[k]=keep
 keep=false
 
-usage[e]="bash command file to execute in the chroot. - to read from stdin"
+usage[e]="bash commands to execute in the chroot."
 varia[e]=execute
 declare -a execute
 
@@ -47,7 +47,7 @@ usage[c]="file:dest Copy the <file> to <dest> into the new system"
 varia[c]=copy
 declare -a copy
 
-. /bin/driglibash-args
+. driglibash-args
 
 ###############################################################################
 #                              Actual script
@@ -67,43 +67,52 @@ run mkfs.ext4 "$device"
 echo "Preparing filesystem"
 run mkdir -p "$mnt"
 run mount "$device" "$mnt"
+#clean "umount '$mnt' -A --recursive"
 
 echo "debootstraping"
 run debootstrap --arch "$arch" "$release" "$mnt" "$repo"
 
+echo "copying files"
+for file in "${copy[@]}" ; do
+  from=$(cut -d ':' -f 1)
+  to=$(cut -d ':' -f 2)
+  run cp "$from" "$mnt/$to"
+done
+
 echo "Preparing chroot"
 run mount -t proc none "$mnt/proc"
+# To access physical devices
 run mount -o bind /dev "$mnt/dev"
+run mount -o bind /sys "$mnt/sys"
 
 echo "Configuring new system"
 uuid=$(blkid | grep "$device" | cut -d ' ' -f 2)
 run echo -e "proc /proc proc defaults\n$uuid    /    ext4 errors=remount-ro 0 1" > "$mnt/etc/fstab"
 run echo "$hostname" > "$mnt/etc/hostname"
-run cat > "$mnt/etc/network/interfaces" << EOF
-auto lo
-iface lo inet loopback
-allow-hotplug eth0
-auto eth0
-iface eth0 inet dhcp
-EOF
-run echo 'PATH=$PATH:/usr/bin:/bin:/sbin:/usr/sbin' > "$mnt/root/.bashrc"
+run echo 'PATH=$PATH:/usr/bin:/bin:/sbin:/usr/sbin; export DEBIAN_FRONTEND=noninteractive' > "$mnt/root/.bashrc"
 
 echo "Chrooting"
-cat << EOF | chroot "$mnt"
-apt-get update -y ${install[@]}
-apt-get install -y linux-image-amd64 console-data grub2
+chroot "$mnt" <<EOF
+  apt update  -q -y --force-yes
+  apt install -q -y --force-yes linux-image-amd64 console-data grub2 $install
+  grub-install "$bloc"
 EOF
+
+for cmd in "${execute[@]}" ; do
+  cat "$cmd" | chroot "$mnt"
+done
+
 # TODO setup grub manually
 # TODO set passwd
 
 echo "Cleaning fs"
-run umount "$mnt"/{dev,proc}
-run umount "$mnt"
-if [ -z "$arg_keep" ] ; then
+if [ "$arg_keep" == "false" ] ; then
+  umount temporary_mount_point/{dev,sys,proc,}
   run rm -r "$mnt"
 fi
 
-if [ -n "$arg_test" ] ; then
+if [ "$arg_test" == "true" ] ; then
   echo "Testing"
   run qemu-system-x86_64 $bloc
 fi
+clean
