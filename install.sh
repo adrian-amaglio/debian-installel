@@ -15,10 +15,6 @@ usage[i]="Install the provided package. Plus 'linux-image-amd64 console-data gru
 varia[i]=install
 install=
 
-usage[k]="Keep the temporar mountpoints"
-varia[k]=keep
-keep=false
-
 usage[e]="bash commands to execute in the chroot."
 varia[e]=execute
 declare -a execute
@@ -33,7 +29,7 @@ arch="amd64"
 
 usage[r]="The release of installed system as supported by debootstrap"
 varia[r]=release
-release="jessie"
+release="stretch"
 
 usage[s]="Source repository of installed system"
 varia[s]=repo
@@ -67,7 +63,7 @@ run mkfs.ext4 "$device"
 echo "Preparing filesystem"
 run mkdir -p "$mnt"
 run mount "$device" "$mnt"
-#clean "umount '$mnt' -A --recursive"
+clean "umount '$mnt' -A --recursive"
 
 echo "debootstraping"
 run debootstrap --arch "$arch" "$release" "$mnt" "$repo"
@@ -81,6 +77,7 @@ done
 
 echo "Preparing chroot"
 run mount -t proc none "$mnt/proc"
+
 # To access physical devices
 run mount -o bind /dev "$mnt/dev"
 run mount -o bind /sys "$mnt/sys"
@@ -89,12 +86,17 @@ echo "Configuring new system"
 uuid=$(blkid | grep "$device" | cut -d ' ' -f 2)
 run echo -e "proc /proc proc defaults\n$uuid    /    ext4 errors=remount-ro 0 1" > "$mnt/etc/fstab"
 run echo "$hostname" > "$mnt/etc/hostname"
-run echo 'PATH=$PATH:/usr/bin:/bin:/sbin:/usr/sbin; export DEBIAN_FRONTEND=noninteractive' > "$mnt/root/.bashrc"
+run cat > "$mnt/root/.bashrc" <<EOF
+PATH=$PATH:/usr/bin:/bin:/sbin:/usr/sbin:/sbin
+export DEBIAN_FRONTEND=noninteractive
+/usr/bin/setterm -blength 0
+EOF
 
 echo "Chrooting"
 chroot "$mnt" <<EOF
   apt update  -q -y --force-yes
   apt install -q -y --force-yes linux-image-amd64 console-data grub2 $install
+  grub-update
   grub-install "$bloc"
 EOF
 
@@ -102,14 +104,11 @@ for cmd in "${execute[@]}" ; do
   cat "$cmd" | chroot "$mnt"
 done
 
-# TODO setup grub manually
 # TODO set passwd
 
 echo "Cleaning fs"
-if [ "$arg_keep" == "false" ] ; then
-  umount temporary_mount_point/{dev,sys,proc,}
-  run rm -r "$mnt"
-fi
+umount temporary_mount_point/{dev,sys,proc,}
+run rm -r "$mnt"
 
 if [ "$arg_test" == "true" ] ; then
   echo "Testing"
