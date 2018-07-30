@@ -61,6 +61,10 @@ declare -a copy
 #                              Actual script
 ###############################################################################
 
+chroot_run(){
+  run echo "$@" | chroot "$mnt"
+}
+
 
 if [ $# -lt 1 ] ; then die "No device found" ; fi
 root_or_die
@@ -127,14 +131,15 @@ echo "Installing custom packs"
 for pack in "$packs" ; do
   case "$pack" in
     '*sysadmin*')
-      echo 'apt install vim openssh-server git' | chroot "$mnt"
+      chroot_run 'apt install vim openssh-server git'
+      chroot_run 'git clone https://github.com/adrianamaglio/driglibash && cd driglibash && cp driglibash-* /usr/bin && cd .. && rm -rf driglibash'
     ;;
     '*webserver*')
       echo 'Nginx will be installed, just add your webapp conf in /etc/nginx/sites-enabled'
-      echo 'apt install nginx ; systemctl enable nginx ; systemctl start nginx' | chroot "$mnt"
+      chroot_run 'apt install nginx ; systemctl enable nginx ; systemctl start nginx'
     ;;
     '*network*')
-      echo 'git clone https://github.com/dahus/gateway && cd gateway && gateway.sh -i && cd .. && rm -rf gateway' | chroot "$mnt"
+      chroot_run 'git clone https://github.com/dahus/gateway && cd gateway && gateway.sh -i && cd .. && rm -rf gateway'
     ;;
     *)
       die "pack '$pack' not supported"
@@ -143,13 +148,13 @@ esac
 
 echo "Executing custom commands"
 for cmd in "${execute[@]}" ; do
-  cat "$cmd" | chroot "$mnt"
+  chroot_run "$cmd"
 done
 
 
 echo "Setting root password"
 if [ -n "$password" ] ; then
-  echo -e "$password\n$password" | chroot "$mnt"
+  chroot_run 'echo -e "$password\n$password" | passwd'
 fi
 
 
