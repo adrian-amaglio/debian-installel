@@ -43,6 +43,10 @@ usage[p]="Root password"
 varia[p]=password
 password=toor
 
+usage[l]="System locale"
+varia[l]=locale
+locale=en_US.UTF-8
+
 usage[c]="file:dest Copy the <file> to <dest> into the new system"
 varia[c]=copy
 declare -a copy
@@ -99,7 +103,9 @@ EOF
 echo "Chrooting"
 chroot "$mnt" <<EOF
   apt update  -q -y --force-yes
-  apt install -q -y --force-yes linux-image-amd64 console-data grub2 $install
+  apt install -q -y --force-yes linux-image-amd64 console-data grub2 locales $install
+  sed  's/#$locale/$locale/g' /etc/locale.gen
+  locale-gen
   grub-update
   grub-install "$bloc"
 EOF
