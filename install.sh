@@ -7,7 +7,7 @@ declare -A varia
 version="alpha nightly 0.0.1 pre-release unstable"
 summary="$0 [options] <device>"
 
-usage[t]="Start qemu after the installation"
+usage[t]="Start qemu after the installation to test the system"
 varia[t]=arg_test
 arg_test=false
 
@@ -51,7 +51,7 @@ usage[q]="Quickstart packs (sysadmin, webserver, network)"
 varia[q]=packs
 declare -a packs
 
-usage[c]="file:dest Copy the <file> to <dest> into the new system"
+usage[c]="file:dest Copy <file> to <dest> into the new system"
 varia[c]=copy
 declare -a copy
 
@@ -64,6 +64,7 @@ declare -a copy
 
 if [ $# -lt 1 ] ; then die "No device found" ; fi
 root_or_die
+
 
 echo "Choosing device"
 device="$1"
@@ -129,6 +130,7 @@ for pack in "$packs" ; do
       echo 'apt install vim openssh-server git' | chroot "$mnt"
     ;;
     '*webserver*')
+      echo 'Nginx will be installed, just add your webapp conf in /etc/nginx/sites-enabled'
       echo 'apt install nginx ; systemctl enable nginx ; systemctl start nginx' | chroot "$mnt"
     ;;
     '*network*')
@@ -136,7 +138,6 @@ for pack in "$packs" ; do
     ;;
     *)
       die "pack '$pack' not supported"
-
 esac
 
 
@@ -155,9 +156,10 @@ fi
 echo "Cleaning fs"
 umount temporary_mount_point/{dev,sys,proc,}
 run rm -r "$mnt"
+clean
+
 
 if [ "$arg_test" == "true" ] ; then
   echo "Testing"
   run qemu-system-x86_64 $bloc
 fi
-clean
