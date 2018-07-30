@@ -39,6 +39,10 @@ usage[n]="The hostname"
 varia[n]=hostname
 hostname="nohost"
 
+usage[p]="Root password"
+varia[p]=password
+password=toor
+
 usage[c]="file:dest Copy the <file> to <dest> into the new system"
 varia[c]=copy
 declare -a copy
@@ -105,6 +109,9 @@ for cmd in "${execute[@]}" ; do
 done
 
 # TODO set passwd
+if [ -n "$password" ] ; then
+  echo -e "$password\n$password" | chroot "$mnt"
+fi
 
 echo "Cleaning fs"
 umount temporary_mount_point/{dev,sys,proc,}
