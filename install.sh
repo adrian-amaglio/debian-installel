@@ -47,6 +47,10 @@ usage[l]="System locale"
 varia[l]=locale
 locale=en_US.UTF-8
 
+usage[q]="Quickstart packs (sysadmin, webserver, network)"
+varia[q]=packs
+declare -a packs
+
 usage[c]="file:dest Copy the <file> to <dest> into the new system"
 varia[c]=copy
 declare -a copy
@@ -65,16 +69,20 @@ echo "Choosing device"
 device="$1"
 bloc=$(echo "$device" | grep -o "^[a-zA-Z/]*")
 
+
 echo "Formating"
 run mkfs.ext4 "$device"
+
 
 echo "Preparing filesystem"
 run mkdir -p "$mnt"
 run mount "$device" "$mnt"
 clean "umount '$mnt' -A --recursive"
 
+
 echo "debootstraping"
 run debootstrap --arch "$arch" "$release" "$mnt" "$repo"
+
 
 echo "copying files"
 for file in "${copy[@]}" ; do
@@ -83,12 +91,14 @@ for file in "${copy[@]}" ; do
   run cp "$from" "$mnt/$to"
 done
 
+
 echo "Preparing chroot"
 run mount -t proc none "$mnt/proc"
 
 # To access physical devices
 run mount -o bind /dev "$mnt/dev"
 run mount -o bind /sys "$mnt/sys"
+
 
 echo "Configuring new system"
 uuid=$(blkid | grep "$device" | cut -d ' ' -f 2)
@@ -100,6 +110,7 @@ export DEBIAN_FRONTEND=noninteractive
 /usr/bin/setterm -blength 0
 EOF
 
+
 echo "Chrooting"
 chroot "$mnt" <<EOF
   apt update  -q -y --force-yes
@@ -110,14 +121,36 @@ chroot "$mnt" <<EOF
   grub-install "$bloc"
 EOF
 
+
+echo "Installing custom packs"
+for pack in "$packs" ; do
+  case "$pack" in
+    '*sysadmin*')
+      echo 'apt install vim openssh-server git' | chroot "$mnt"
+    ;;
+    '*webserver*')
+      echo 'apt install nginx ; systemctl enable nginx ; systemctl start nginx' | chroot "$mnt"
+    ;;
+    '*network*')
+      echo 'git clone https://github.com/dahus/gateway && cd gateway && gateway.sh -i && cd .. && rm -rf gateway' | chroot "$mnt"
+    ;;
+    *)
+      die "pack '$pack' not supported"
+
+esac
+
+
+echo "Executing custom commands"
 for cmd in "${execute[@]}" ; do
   cat "$cmd" | chroot "$mnt"
 done
 
-# TODO set passwd
+
+echo "Setting root password"
 if [ -n "$password" ] ; then
   echo -e "$password\n$password" | chroot "$mnt"
 fi
+
 
 echo "Cleaning fs"
 umount temporary_mount_point/{dev,sys,proc,}
