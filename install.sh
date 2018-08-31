@@ -3,6 +3,7 @@
 # https://github.com/adrianamaglio/driglibash
 declare -A usage
 declare -A varia
+driglibash_run_retry=true
 
 version="alpha nightly 0.0.1 pre-release unstable"
 summary="$0 [options] <device>"
@@ -55,6 +56,10 @@ usage[c]="file:dest Copy <file> to <dest> into the new system"
 varia[c]=copy
 declare -a copy
 
+usage[v]="The installed OS starts in RAM"
+varia[v]=start_in_ram
+start_in_ram=false
+
 . driglibash-args
 
 ###############################################################################
@@ -76,6 +81,7 @@ bloc=$(echo "$device" | grep -o "^[a-zA-Z/]*")
 
 
 echo "Formating"
+# TODO no confirmation ?
 run mkfs.ext4 "$device"
 
 
@@ -115,14 +121,17 @@ export DEBIAN_FRONTEND=noninteractive
 /usr/bin/setterm -blength 0
 EOF
 
+if "$start_in_ram" ; then
+  # TODO in live-initramfs; add 'toram' to your boot parameters.
+fi
 
 echo "Chrooting"
 chroot "$mnt" <<EOF
   apt update  -q -y --force-yes
   apt install -q -y --force-yes linux-image-amd64 console-data grub2 locales $install
-  sed  's/#$locale/$locale/g' /etc/locale.gen
+  sed -i 's/#$locale/$locale/g' /etc/locale.gen
   locale-gen
-  grub-update
+  update-grub
   grub-install "$bloc"
 EOF
 
@@ -130,20 +139,21 @@ EOF
 echo "Installing custom packs"
 for pack in "$packs" ; do
   case "$pack" in
-    '*sysadmin*')
+    *sysadmin*)
       chroot_run 'apt install vim openssh-server git'
       chroot_run 'git clone https://github.com/adrianamaglio/driglibash && cd driglibash && cp driglibash-* /usr/bin && cd .. && rm -rf driglibash'
     ;;
-    '*webserver*')
+    *webserver*)
       echo 'Nginx will be installed, just add your webapp conf in /etc/nginx/sites-enabled'
       chroot_run 'apt install nginx ; systemctl enable nginx ; systemctl start nginx'
     ;;
-    '*network*')
+    *network*)
       chroot_run 'git clone https://github.com/dahus/gateway && cd gateway && gateway.sh -i && cd .. && rm -rf gateway'
     ;;
     *)
       die "pack '$pack' not supported"
-esac
+  esac
+done
 
 
 echo "Executing custom commands"
@@ -164,7 +174,7 @@ run rm -r "$mnt"
 clean
 
 
-if [ "$arg_test" == "true" ] ; then
+if [ "$arg_test" != "false" ] ; then
   echo "Testing"
   run qemu-system-x86_64 $bloc
 fi
