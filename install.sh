@@ -6,7 +6,7 @@ declare -A varia
 driglibash_run_retry=true
 
 version="alpha nightly 0.0.1 pre-release unstable"
-summary="$0 [options] <device>"
+summary="$0 [options]"
 
 usage[t]="Start qemu after the installation to test the system"
 varia[t]=arg_test
@@ -35,6 +35,7 @@ release="stretch"
 usage[s]="Source repository of installed system"
 varia[s]=repo
 repo="http://ftp.fr.debian.org/debian"
+repo="http://localhost:3142/ftp.fr.debian.org/debian"
 
 usage[n]="The hostname"
 varia[n]=hostname
@@ -46,7 +47,7 @@ password=toor
 
 usage[l]="System locale"
 varia[l]=locale
-locale=en_US.UTF-8
+locale="en_US.UTF-8 UTF-8"
 
 usage[q]="Quickstart packs (sysadmin, webserver, network)"
 varia[q]=packs
@@ -60,6 +61,18 @@ usage[v]="The installed OS starts in RAM"
 varia[v]=start_in_ram
 start_in_ram=false
 
+usage[d]="The device where we will install the system"
+varia[d]=root_device
+root_device=
+
+usage[b]="The device where we will install the boot"
+varia[b]=boot_device
+boot_device=
+
+usage[k]="Keep everything in place and wait before cleaning. Used to debug."
+varia[k]=keep_and_wait
+keep_and_wait=false
+
 . driglibash-args
 
 ###############################################################################
@@ -70,25 +83,24 @@ chroot_run(){
   run echo "$@" | chroot "$mnt"
 }
 
-
-if [ $# -lt 1 ] ; then die "No device found" ; fi
 root_or_die
 
-
 echo "Choosing device"
-device="$1"
-bloc=$(echo "$device" | grep -o "^[a-zA-Z/]*")
+device="$root_device"
+# The bloc device is where grub will be physically installed
+bloc=$(echo "$boot_device" | grep -o "^[a-zA-Z/]*")
 
 
 echo "Formating"
 # TODO no confirmation ?
-run mkfs.ext4 "$device"
+run mkfs.ext4 "$root_device"
+run mkfs.fat "$boot_device"
 
 
 echo "Preparing filesystem"
 run mkdir -p "$mnt"
 run mount "$device" "$mnt"
-clean "umount '$mnt' -A --recursive"
+clean "umount $mnt -A --recursive"
 
 
 echo "debootstraping"
@@ -123,13 +135,16 @@ EOF
 
 if "$start_in_ram" ; then
   # TODO in live-initramfs; add 'toram' to your boot parameters.
+  echo start in ram not implemented not implemented
 fi
+
+
 
 echo "Chrooting"
 chroot "$mnt" <<EOF
-  apt update  -q -y --force-yes
-  apt install -q -y --force-yes linux-image-amd64 console-data grub2 locales $install
-  sed -i 's/#$locale/$locale/g' /etc/locale.gen
+  apt-get update  -q -y 
+  apt-get install -q -y linux-image-amd64 console-data grub2 locales $install
+  echo "$locale" > "/etc/locale.gen"
   locale-gen
   update-grub
   grub-install "$bloc"
@@ -167,10 +182,12 @@ if [ -n "$password" ] ; then
   chroot_run 'echo -e "$password\n$password" | passwd'
 fi
 
+if "$keep_and_wait" ; then
+  echo "Press enter to clean everything"
+  read
+fi
 
 echo "Cleaning fs"
-umount temporary_mount_point/{dev,sys,proc,}
-run rm -r "$mnt"
 clean
 
 
