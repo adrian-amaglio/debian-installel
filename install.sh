@@ -73,6 +73,10 @@ usage[k]="Keep everything in place and wait before cleaning. Used to debug."
 varia[k]=keep_and_wait
 keep_and_wait=false
 
+usage[o]="Only mount target"
+varia[o]=only_mount
+only_mount=false
+
 . driglibash-args
 
 ###############################################################################
@@ -83,6 +87,30 @@ chroot_run(){
   run echo "$@" | chroot "$mnt"
 }
 
+mount_all(){
+  mount_partitions
+  mount_misc
+}
+
+mount_partitions(){
+  run mkdir -p "$mnt"
+  run mount "$device" "$mnt"
+  clean "umount $mnt -A --recursive"
+}
+
+mount_misc(){
+  run mount -t proc none "$mnt/proc"
+  # To access physical devices
+  run mount -o bind /dev "$mnt/dev"
+  run mount -o bind /sys "$mnt/sys"
+}
+
+wait_for_user(){
+  run echo "$1"
+  run echo "Appuyer sur entrer pour reprendre le programme"
+  read
+}
+
 root_or_die
 
 echo "Choosing device"
@@ -90,6 +118,11 @@ device="$root_device"
 # The bloc device is where grub will be physically installed
 bloc=$(echo "$boot_device" | grep -o "^[a-zA-Z/]*")
 
+if "$only_mount" ; then
+  mount_all
+  wait_for_user
+  die 'End of dry script'
+fi
 
 echo "Formating"
 # TODO no confirmation ?
@@ -97,15 +130,11 @@ run mkfs.ext4 "$root_device"
 run mkfs.fat "$boot_device"
 
 
-echo "Preparing filesystem"
-run mkdir -p "$mnt"
-run mount "$device" "$mnt"
-clean "umount $mnt -A --recursive"
-
+echo "Mounting partitions"
+mount_partitions
 
 echo "debootstraping"
 run debootstrap --arch "$arch" "$release" "$mnt" "$repo"
-
 
 echo "copying files"
 for file in "${copy[@]}" ; do
@@ -114,14 +143,8 @@ for file in "${copy[@]}" ; do
   run cp "$from" "$mnt/$to"
 done
 
-
-echo "Preparing chroot"
-run mount -t proc none "$mnt/proc"
-
-# To access physical devices
-run mount -o bind /dev "$mnt/dev"
-run mount -o bind /sys "$mnt/sys"
-
+echo "Mounting additionnal items"
+mount_misc
 
 echo "Configuring new system"
 uuid=$(blkid | grep "$device" | cut -d ' ' -f 2)
@@ -153,6 +176,7 @@ EOF
 
 echo "Installing custom packs"
 for pack in "$packs" ; do
+  if [ -n "$pack" ] ; then
   case "$pack" in
     *sysadmin*)
       chroot_run 'apt install vim openssh-server git'
@@ -168,6 +192,7 @@ for pack in "$packs" ; do
     *)
       die "pack '$pack' not supported"
   esac
+  fi
 done
 
 
@@ -179,12 +204,11 @@ done
 
 echo "Setting root password"
 if [ -n "$password" ] ; then
-  chroot_run 'echo -e "$password\n$password" | passwd'
+  chroot_run "echo -e \"$password\n$password\" | passwd"
 fi
 
-if "$keep_and_wait" ; then
-  echo "Press enter to clean everything"
-  read
+if "$keep_and_wait" ; then
+  wait_for_user
 fi
 
 echo "Cleaning fs"
