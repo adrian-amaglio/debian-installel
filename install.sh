@@ -74,8 +74,8 @@ varia[k]=keep_and_wait
 keep_and_wait=false
 
 usage[o]="Only mount target"
-varia[o]=only_mount
-only_mount=false
+varia[o]=dry
+dry=false
 
 . driglibash-args
 
@@ -94,7 +94,7 @@ mount_all(){
 
 mount_partitions(){
   run mkdir -p "$mnt"
-  run mount "$device" "$mnt"
+  run mount "$root_device" "$mnt"
   clean "umount $mnt -A --recursive"
 }
 
@@ -103,6 +103,7 @@ mount_misc(){
   # To access physical devices
   run mount -o bind /dev "$mnt/dev"
   run mount -o bind /sys "$mnt/sys"
+  # mount /dev/pts ? apt install complain about its absence
 }
 
 wait_for_user(){
@@ -111,43 +112,51 @@ wait_for_user(){
   read
 }
 
+try_test(){
+  if [ "$arg_test" != "false" ] ; then
+    section "Testing installed system"
+    run qemu-system-x86_64 "$bloc"
+  fi
+}
+
 root_or_die
 
-echo "Choosing device"
-device="$root_device"
+section "Choosing device"
 # The bloc device is where grub will be physically installed
 bloc=$(echo "$boot_device" | grep -o "^[a-zA-Z/]*")
 
-if "$only_mount" ; then
+if "$dry" ; then
+  section "Dry Run"
   mount_all
   wait_for_user
+  try_test
   die 'End of dry script'
 fi
 
-echo "Formating"
+section "Formating"
 # TODO no confirmation ?
 run mkfs.ext4 "$root_device"
 run mkfs.fat "$boot_device"
 
 
-echo "Mounting partitions"
+section "Mounting partitions"
 mount_partitions
 
-echo "debootstraping"
+section "debootstraping"
 run debootstrap --arch "$arch" "$release" "$mnt" "$repo"
 
-echo "copying files"
+section "copying files"
 for file in "${copy[@]}" ; do
   from=$(cut -d ':' -f 1)
   to=$(cut -d ':' -f 2)
   run cp "$from" "$mnt/$to"
 done
 
-echo "Mounting additionnal items"
+section "Mounting additionnal items"
 mount_misc
 
-echo "Configuring new system"
-uuid=$(blkid | grep "$device" | cut -d ' ' -f 2)
+section "Configuring new system"
+uuid=$(blkid | grep "$root_device" | cut -d ' ' -f 2)
 run echo -e "proc /proc proc defaults\n$uuid    /    ext4 errors=remount-ro 0 1" > "$mnt/etc/fstab"
 run echo "$hostname" > "$mnt/etc/hostname"
 run cat > "$mnt/root/.bashrc" <<EOF
@@ -163,7 +172,7 @@ fi
 
 
 
-echo "Chrooting"
+section "Chrooting"
 chroot "$mnt" <<EOF
   apt-get update  -q -y 
   apt-get install -q -y linux-image-amd64 console-data grub2 locales $install
@@ -174,7 +183,7 @@ chroot "$mnt" <<EOF
 EOF
 
 
-echo "Installing custom packs"
+section "Installing custom packs"
 for pack in "$packs" ; do
   if [ -n "$pack" ] ; then
   case "$pack" in
@@ -192,30 +201,29 @@ for pack in "$packs" ; do
     *)
       die "pack '$pack' not supported"
   esac
+  else
+    echo "No package selected"
   fi
 done
 
 
-echo "Executing custom commands"
 for cmd in "${execute[@]}" ; do
+  section "Executing custom commands"
   chroot_run "$cmd"
 done
 
 
-echo "Setting root password"
 if [ -n "$password" ] ; then
+  section "Setting root password"
   chroot_run "echo -e \"$password\n$password\" | passwd"
 fi
 
 if "$keep_and_wait" ; then
+  section "Time for a pause"
   wait_for_user
 fi
 
-echo "Cleaning fs"
+section "Cleaning fs"
 clean
 
-
-if [ "$arg_test" != "false" ] ; then
-  echo "Testing"
-  run qemu-system-x86_64 $bloc
-fi
+try_test
