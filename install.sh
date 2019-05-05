@@ -107,8 +107,8 @@ mount_misc(){
 }
 
 wait_for_user(){
-  run echo "$1"
-  run echo "Appuyer sur entrer pour reprendre le programme"
+  section "Time for a pause"
+  run echo "Press 'Enter' to continue"
   read
 }
 
@@ -126,7 +126,7 @@ section "Choosing device"
 bloc=$(echo "$boot_device" | grep -o "^[a-zA-Z/]*")
 
 if "$dry" ; then
-  section "Dry Run"
+  section "Dry Run - mount"
   mount_all
   wait_for_user
   try_test
@@ -161,7 +161,6 @@ run echo -e "proc /proc proc defaults\n$uuid    /    ext4 errors=remount-ro 0 1"
 run echo "$hostname" > "$mnt/etc/hostname"
 run cat > "$mnt/root/.bashrc" <<EOF
 PATH=$PATH:/usr/bin:/bin:/sbin:/usr/sbin:/sbin
-export DEBIAN_FRONTEND=noninteractive
 /usr/bin/setterm -blength 0
 EOF
 
@@ -174,6 +173,7 @@ fi
 
 section "Chrooting"
 chroot "$mnt" <<EOF
+  export DEBIAN_FRONTEND=noninteractive
   apt-get update  -q -y 
   apt-get install -q -y linux-image-amd64 console-data grub2 locales $install
   echo "$locale" > "/etc/locale.gen"
@@ -219,7 +219,6 @@ if [ -n "$password" ] ; then
 fi
 
 if "$keep_and_wait" ; then
-  section "Time for a pause"
   wait_for_user
 fi
 
