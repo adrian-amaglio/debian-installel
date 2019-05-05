@@ -41,9 +41,9 @@ usage[n]="The hostname"
 varia[n]=hostname
 hostname="nohost"
 
-usage[p]="Root password"
+usage[p]="Root password. Will be read from stdin if empty."
 varia[p]=password
-password=toor
+password=
 
 usage[l]="System locale"
 varia[l]=locale
@@ -131,6 +131,11 @@ if "$dry" ; then
   wait_for_user
   try_test
   die 'End of dry script'
+fi
+
+section "Reading password"
+if [ -z "$password" ] ; then
+  read password
 fi
 
 section "Formating"
