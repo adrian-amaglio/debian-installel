@@ -171,7 +171,7 @@ EOF
 
 if "$start_in_ram" ; then
   # TODO in live-initramfs; add 'toram' to your boot parameters.
-  echo start in ram not implemented not implemented
+  echo 'start in ram not implemented'
 fi
 
 
@@ -212,14 +212,14 @@ for pack in "$packs" ; do
 done
 
 
+section "Executing custom commands"
 for cmd in "${execute[@]}" ; do
-  section "Executing custom commands"
   chroot_run "$cmd"
 done
 
 
+section "Setting root password"
 if [ -n "$password" ] ; then
-  section "Setting root password"
   chroot_run "echo -e \"$password\n$password\" | passwd"
 fi
 
