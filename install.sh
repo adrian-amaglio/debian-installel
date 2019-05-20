@@ -95,6 +95,10 @@ mount_all(){
 mount_partitions(){
   run mkdir -p "$mnt"
   run mount "$root_device" "$mnt"
+  if [ -n "$boot_device" ] ; then
+    run mkdir -p "$mnt/boot"
+    run mount "$boot_device" "$mnt/boot"
+  fi
   clean "umount $mnt -A --recursive"
 }
 
@@ -141,7 +145,7 @@ fi
 section "Formating"
 # TODO no confirmation ?
 run mkfs.ext4 "$root_device"
-run mkfs.fat "$boot_device"
+run mkfs.ext2 "$boot_device"
 
 
 section "Mounting partitions"
@@ -149,6 +153,28 @@ mount_partitions
 
 section "debootstraping"
 run debootstrap --arch "$arch" "$release" "$mnt" "$repo"
+
+# boot crypted
+section "Installing cryptsetup in initramfs"
+#run echo 'CRYPTSETUP=y' >> /etc/cryptsetup-initramfs/conf-hook
+#run cp key "$mnt/root/"
+#run echo 'FILES="/root/key"' >> /etc/initramfs-tools/initramfs.conf
+#run update-initramfs -ut
+#echo "$mnt/etc/initramfs-tools/conf.d/cryptsetup" <<EOF
+## This will setup non-us keyboards in early userspace,
+## necessary for punching in passphrases.
+#KEYMAP=y
+#
+## force busybox and cryptsetup on initramfs
+#BUSYBOX=y
+#CRYPTSETUP=y
+#
+## and for systems using plymouth instead, use the new option
+#FRAMEBUFFER=y
+#EOF
+echo 'export CRYPTSETUP=y' >> "$mnt/etc/environment"
+#echo 'export FILES="./key"' >> "$mnt/etc/initramfs-tools/initramfs.conf"
+chroot_run 'update-initramfs -ut'
 
 section "copying files"
 for file in "${copy[@]}" ; do
@@ -163,7 +189,12 @@ mount_misc
 section "Configuring new system"
 uuid=$(blkid | grep "$root_device" | cut -d ' ' -f 2)
 run echo -e "proc /proc proc defaults\n$uuid    /    ext4 errors=remount-ro 0 1" > "$mnt/etc/fstab"
+# TODO set noauto to /boot if needed
+
+# Set hostname
 run echo "$hostname" > "$mnt/etc/hostname"
+
+# Fix path and remove noisy beep
 run cat > "$mnt/root/.bashrc" <<EOF
 PATH=$PATH:/usr/bin:/bin:/sbin:/usr/sbin:/sbin
 /usr/bin/setterm -blength 0
@@ -176,17 +207,12 @@ fi
 
 
 
-section "Chrooting"
+section "Installing selected software"
 chroot "$mnt" <<EOF
   export DEBIAN_FRONTEND=noninteractive
   apt-get update  -q -y 
   apt-get install -q -y linux-image-amd64 console-data grub2 locales $install
-  echo "$locale" > "/etc/locale.gen"
-  locale-gen
-  update-grub
-  grub-install "$bloc"
 EOF
-
 
 section "Installing custom packs"
 for pack in "$packs" ; do
@@ -211,12 +237,22 @@ for pack in "$packs" ; do
   fi
 done
 
+section "Generating locales"
+chroot "$mnt" <<EOF
+  echo "$locale" > "/etc/locale.gen"
+  locale-gen
+EOF
+
+section "Installing grub"
+chroot "$mnt" <<EOF
+  update-grub
+  grub-install "$bloc"
+EOF
 
 section "Executing custom commands"
 for cmd in "${execute[@]}" ; do
   chroot_run "$cmd"
 done
-
 
 section "Setting root password"
 if [ -n "$password" ] ; then
