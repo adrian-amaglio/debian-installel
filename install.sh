@@ -189,14 +189,6 @@ for file in "${copy[@]}" ; do
 done
 
 
-section "Creating root SSH key to connect"
-ssh_key_passphrase=="$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 200)"
-run ssh-keygen -b 4096 -f ssh_key -P "$ssh_key_passphrase"
-run mkdir -p "$mnt/root/.ssh/"
-cat ssh_key.pub >> "$mnt/root/.ssh/authorized_keys"
-run sed -i 's/#PasswordAuthentication.*/PasswordAuthentication no/g' "$mnt/etc/ssh/sshd_config"
-
-
 section "Mounting additionnal items"
 mount_misc
 
@@ -247,6 +239,20 @@ EOF
 EOF
   fi
 fi
+
+
+section "Creating root SSH key to connect"
+ssh_key_passphrase=="$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 200)"
+run ssh-keygen -b 4096 -f ../ssh/$hostname -P "$ssh_key_passphrase"
+run mkdir -p "$mnt/root/.ssh/"
+cat ../ssh/$hostname.pub >> "$mnt/root/.ssh/authorized_keys"
+run sed -i 's/#PasswordAuthentication.*/PasswordAuthentication no/g' "$mnt/etc/ssh/sshd_config"
+cat > ../ssh/config <<EOF
+Host $hostname
+  HostName $ip
+  User root
+  IdentityFile "$(pwd)/../ssh/$hostname"
+EOF
 
 
 if "$start_in_ram" ; then
