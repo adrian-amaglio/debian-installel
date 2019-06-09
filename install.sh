@@ -12,6 +12,10 @@ usage[t]="Start qemu after the installation to test the system"
 varia[t]=arg_test
 arg_test=false
 
+usage[N]="Network configuration format: interface-ip/mask-gateway . If ip is 'dhcp' interface will query dhcp server."
+varia[N]=network
+network=
+
 usage[i]="Install the provided package. Plus 'linux-image-amd64 console-data grub2'"
 varia[i]=install
 install=
@@ -156,7 +160,7 @@ run debootstrap --arch "$arch" "$release" "$mnt" "$repo"
 
 # boot crypted
 section "Installing cryptsetup in initramfs"
-#run echo 'CRYPTSETUP=y' >> /etc/cryptsetup-initramfs/conf-hook
+run echo 'CRYPTSETUP=y' >> /etc/cryptsetup-initramfs/conf-hook
 #run cp key "$mnt/root/"
 #run echo 'FILES="/root/key"' >> /etc/initramfs-tools/initramfs.conf
 #run update-initramfs -ut
@@ -176,12 +180,22 @@ echo 'export CRYPTSETUP=y' >> "$mnt/etc/environment"
 #echo 'export FILES="./key"' >> "$mnt/etc/initramfs-tools/initramfs.conf"
 chroot_run 'update-initramfs -ut'
 
+
 section "copying files"
 for file in "${copy[@]}" ; do
   from=$(cut -d ':' -f 1)
   to=$(cut -d ':' -f 2)
   run cp "$from" "$mnt/$to"
 done
+
+
+section "Creating root SSH key to connect"
+ssh_key_passphrase=="$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 200)"
+run ssh-keygen -b 4096 -f ssh_key -P "$ssh_key_passphrase"
+run mkdir -p "$mnt/root/.ssh/"
+cat ssh_key.pub >> "$mnt/root/.ssh/authorized_keys"
+run sed -i 's/#PasswordAuthentication.*/PasswordAuthentication no/g' "$mnt/etc/ssh/sshd_config"
+
 
 section "Mounting additionnal items"
 mount_misc
@@ -199,6 +213,41 @@ run cat > "$mnt/root/.bashrc" <<EOF
 PATH=$PATH:/usr/bin:/bin:/sbin:/usr/sbin:/sbin
 /usr/bin/setterm -blength 0
 EOF
+# Be sure this fucking beep is gone
+echo 'set bell-style none' >> "$mnt/etc/inputrc"
+# TODO find a third method to kill this doomed beep
+
+
+section "Set up networking"
+# Networking can be eth0-dhcp or eth0-10.0.0.1/24-10.0.0.254
+# iface-ip-gateway
+if [ -n "$network" ] ; then
+  # Disable the unpredictable naming (since we are not on the future host)
+  run ln -s /dev/null "$mnt/etc/udev/rules.d/80-net-setup-link.rules"
+
+  interface="$(echo "$static_network" | cut -d '-' -f 1)"
+  ip="$(echo "$static_network" | cut -d '-' -f 2)"
+  netmask="$(ipcalc $ip -n |grep Netmask| cut -d ' ' -f 4)"
+  ip="$(echo "$static_network" | cut -d '/' -f 1)"
+  gateway="$(echo "$static_network" | cut -d '-' -f 3)"
+
+  if [ "$ip" = "dhcp" ] ; then
+    run cat >> "$mnt/etc/network/interfaces" <<EOF
+      auto eth0
+      allow-hotplug eth0
+      iface $interface inet dhcp
+EOF
+  else
+    run cat >> "$mnt/etc/network/interfaces" <<EOF
+      allow-hotplug $interface
+      iface $interface inet static
+        address $ip
+        netmask $netmask
+        gateway $gateway
+EOF
+  fi
+fi
+
 
 if "$start_in_ram" ; then
   # TODO in live-initramfs; add 'toram' to your boot parameters.
