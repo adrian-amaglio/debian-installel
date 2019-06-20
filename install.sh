@@ -102,6 +102,14 @@ wait_for_user(){
   read
 }
 
+mount_misc(){
+  run mkdir -p "$mnt"/{proc,dev,sys}
+  run mount -t proc none "$mnt/proc"
+  # To access physical devices
+  run mount -o bind /dev "$mnt/dev"
+  run mount -o bind /sys "$mnt/sys"
+  # mount /dev/pts ? apt install complain about its absence
+}
 
 root_or_die
 
@@ -117,10 +125,15 @@ fi
 
 
 section "debootstraping"
-# Debootstrap needs an empty directory
-run rm -rf "$mnt"
-run mkdir -p "$mnt"
+# Debootstrap may fail when the target is an existing system
+if [ -n "$(ls -A $mnt)" ]; then
+  die "Secret dir '$mnt' is not empty. Won’t deboustrap it."
+fi
 run debootstrap --verbose --arch "$arch" "$release" "$mnt" "$repo"
+
+
+section "Mounting additionnal items"
+mount_misc
 
 
 section "Installing selected software"
@@ -141,8 +154,6 @@ for file in "${copy[@]}" ; do
 done
 
 
-section "Mounting additionnal items"
-#mount_misc
 
 section "Configuring new system"
 uuid=$(blkid | grep "$root_device" | cut -d ' ' -f 2)
@@ -268,7 +279,7 @@ chroot_run locale-gen
 
 section "Installing grub"
 chroot_run update-grub
-chroot_run grub-install "$bloc"
+chroot_run grub-install "$boot_device"
 
 
 section "Executing custom commands"
@@ -279,5 +290,5 @@ done
 
 if [ "$arg_test" != "false" ] ; then
   section "Testing installed system"
-  run qemu-system-x86_64 "$bloc"
+  run qemu-system-x86_64 "$boot_device"
 fi

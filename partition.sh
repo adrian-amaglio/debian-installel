@@ -98,7 +98,7 @@ if [ -n "$boot_device" ] ; then
 fi
 
 
-mount_all
+mount_partitions
 
 wait_for_user
 
