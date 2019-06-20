@@ -81,7 +81,7 @@ dry=false
 
 usage[O]="Secret output directory"
 varia[O]=secret_dir
-secret_dir="~/debian-secrets"
+secret_dir="./debian-secrets"
 
 . driglibash-args
 
@@ -91,6 +91,9 @@ secret_dir="~/debian-secrets"
 
 chroot_run(){
   run echo "$@" | chroot "$mnt"
+  if [ "$?" -ne 0 ] ; then
+    die "Error, chroot command [$@] exited with code '$?'"
+  fi
 }
 
 wait_for_user(){
@@ -102,39 +105,32 @@ wait_for_user(){
 
 root_or_die
 
+
 section "Testing for existing secrets"
-secret_dir="$(realpath "$secret_dir/$hostname")"
+secret_dir="$(realpath -m "$secret_dir/$hostname")"
+if ! [ -d "$secret_dir" ] ; then
+  run mkdir -p "$secret_dir"
+fi
 if [ -n "$(ls -A $secret_dir)" ]; then
   die "Secret dir '$secret_dir' is not empty"
 fi
-run mkdir -p "$secret_dir"
 
 
 section "debootstraping"
+# Debootstrap needs an empty directory
+run rm -rf "$mnt"
+run mkdir -p "$mnt"
 run debootstrap --verbose --arch "$arch" "$release" "$mnt" "$repo"
 
 
-# boot crypted
-section "Installing cryptsetup in initramfs"
-run echo 'CRYPTSETUP=y' >> /etc/cryptsetup-initramfs/conf-hook
-#run cp key "$mnt/root/"
-#run echo 'FILES="/root/key"' >> /etc/initramfs-tools/initramfs.conf
-#run update-initramfs -ut
-#echo "$mnt/etc/initramfs-tools/conf.d/cryptsetup" <<EOF
-## This will setup non-us keyboards in early userspace,
-## necessary for punching in passphrases.
-#KEYMAP=y
-#
-## force busybox and cryptsetup on initramfs
-#BUSYBOX=y
-#CRYPTSETUP=y
-#
-## and for systems using plymouth instead, use the new option
-#FRAMEBUFFER=y
-#EOF
-echo 'export CRYPTSETUP=y' >> "$mnt/etc/environment"
-#echo 'export FILES="./key"' >> "$mnt/etc/initramfs-tools/initramfs.conf"
-chroot_run 'update-initramfs -ut'
+section "Installing selected software"
+#XXX use chroot_run
+chroot "$mnt" <<EOF
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update  -q -y 
+  apt-get install -q -y linux-image-amd64 console-data grub2 locales sudo lvm2 $install
+EOF
+# TODO watershed ?
 
 
 section "copying files"
@@ -164,6 +160,29 @@ EOF
 # Be sure this fucking beep is gone
 echo 'set bell-style none' >> "$mnt/etc/inputrc"
 # TODO find a third method to kill this doomed beep
+
+
+# boot crypted
+section "Installing cryptsetup in initramfs"
+run echo 'CRYPTSETUP=y' >> /etc/cryptsetup-initramfs/conf-hook
+#run cp key "$mnt/root/"
+#run echo 'FILES="/root/key"' >> /etc/initramfs-tools/initramfs.conf
+#run update-initramfs -ut
+#echo "$mnt/etc/initramfs-tools/conf.d/cryptsetup" <<EOF
+## This will setup non-us keyboards in early userspace,
+## necessary for punching in passphrases.
+#KEYMAP=y
+#
+## force busybox and cryptsetup on initramfs
+#BUSYBOX=y
+#CRYPTSETUP=y
+#
+## and for systems using plymouth instead, use the new option
+#FRAMEBUFFER=y
+#EOF
+echo 'export CRYPTSETUP=y' >> "$mnt/etc/environment"
+#echo 'export FILES="./key"' >> "$mnt/etc/initramfs-tools/initramfs.conf"
+chroot_run 'update-initramfs -ut'
 
 
 section "Set up networking"
@@ -206,23 +225,13 @@ if "$start_in_ram" ; then
 fi
 
 
-section "Installing selected software"
-#XXX use chroot_run
-chroot "$mnt" <<EOF
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update  -q -y 
-  apt-get install -q -y linux-image-amd64 console-data grub2 locales sudo lvm2 $install
-EOF
-# TODO watershed ?
-
-
 section "Installing custom packs"
 for pack in "$packs" ; do
   if [ -n "$pack" ] ; then
   case "$pack" in
     *sysadmin*)
-      chroot_run 'DEBIAN_FRONTEND=noninteractive apt install vim openssh-server git'
-      chroot_run 'git clone https://github.com/adrianamaglio/driglibash && cd driglibash && cp driglibash-* /usr/bin && cd .. && rm -rf driglibash'
+      chroot_run 'export DEBIAN_FRONTEND=noninteractive ; apt install -y vim openssh-server git'
+      chroot_run 'git clone https://github.com/adrian-amaglio/driglibash && cd driglibash && cp driglibash-* /usr/bin && cd .. && rm -rf driglibash'
     ;;
     *webserver*)
       echo 'Nginx will be installed, just add your webapp conf in /etc/nginx/sites-enabled'
@@ -253,17 +262,13 @@ EOF
 
 
 section "Generating locales"
-chroot "$mnt" <<EOF
-  echo "$locale" > "/etc/locale.gen"
-  locale-gen
-EOF
+chroot_run echo "$locale" > "/etc/locale.gen"
+chroot_run locale-gen
 
 
 section "Installing grub"
-chroot "$mnt" <<EOF
-  update-grub
-  grub-install "$bloc"
-EOF
+chroot_run update-grub
+chroot_run grub-install "$bloc"
 
 
 section "Executing custom commands"
